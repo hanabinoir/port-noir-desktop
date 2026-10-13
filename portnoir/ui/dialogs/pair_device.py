@@ -2,10 +2,11 @@ from __future__ import annotations
 
 import io
 import json
+import threading
 import time
 
 import qrcode
-from PySide6.QtCore import Qt, QTimer
+from PySide6.QtCore import Qt, QTimer, Signal
 from PySide6.QtGui import QGuiApplication, QPixmap
 from PySide6.QtWidgets import QDialog, QHBoxLayout, QLabel, QPushButton, QVBoxLayout, QWidget
 
@@ -15,11 +16,16 @@ from ..icons import Icons, icon
 
 
 class PairDeviceDialog(QDialog):
+    generated = Signal(str, str, float, bytes)
+
     def __init__(self, manager: ConnectionManager, parent: QWidget | None = None):
         super().__init__(parent)
         self.manager = manager
         self._payload_json = ""
+        self._host = ""
         self._expires = 0.0
+        self._generating = False
+        self.generated.connect(self._apply_generated, Qt.QueuedConnection)
         self.setWindowTitle("Add device")
         self.setFixedWidth(400)
 
@@ -70,25 +76,42 @@ class PairDeviceDialog(QDialog):
         self._timer.start(1000)
 
     def _regenerate(self) -> None:
+        if self._generating:
+            return
+        self._generating = True
+        self.info.setText("Generating pairing code…")
+        thread = threading.Thread(target=self._generate_in_background, daemon=True)
+        thread.start()
+
+    def _generate_in_background(self) -> None:
         payload = self.manager.new_pairing_payload()
-        self._payload_json = json.dumps(payload, separators=(",", ":"))
-        self._expires = time.time() + TOKEN_TTL
+        payload_json = json.dumps(payload, separators=(",", ":"))
+        expires = time.time() + TOKEN_TTL
         qr = qrcode.QRCode(error_correction=qrcode.constants.ERROR_CORRECT_M, box_size=8, border=2)
-        qr.add_data(self._payload_json)
+        qr.add_data(payload_json)
         qr.make(fit=True)
         buf = io.BytesIO()
         qr.make_image(fill_color="black", back_color="white").save(buf, format="PNG")
+        self.generated.emit(payload_json, payload.get("host", ""), expires, buf.getvalue())
+
+    def _apply_generated(self, payload_json: str, host: str, expires: float, png_data: bytes) -> None:
+        self._generating = False
+        self._payload_json = payload_json
+        self._host = host
+        self._expires = expires
         pm = QPixmap()
-        pm.loadFromData(buf.getvalue())
+        pm.loadFromData(png_data)
         self.qr.setPixmap(pm.scaled(256, 256, Qt.KeepAspectRatio, Qt.FastTransformation))
         self._tick()
 
     def _tick(self) -> None:
+        if self._generating:
+            return
         left = int(self._expires - time.time())
         if left <= 0:
             self._regenerate()
             return
-        self.info.setText(f"This Mac: {self.manager.new_pairing_payload()['host']}:{self.manager.port}\n"
+        self.info.setText(f"This Mac: {self._host or 'unknown'}:{self.manager.port}\n"
                           f"Code refreshes in {left} s")
 
     def _on_paired(self, _device_id: str) -> None:
