@@ -7,6 +7,7 @@ from __future__ import annotations
 import datetime as dt
 import hashlib
 import hmac
+import ipaddress
 import json
 import os
 import secrets
@@ -25,20 +26,52 @@ TOKEN_TTL = 120  # seconds a QR code stays valid
 
 
 def data_dir() -> Path:
-    path = Path(user_data_dir("PortNoir", appauthor=False))  # ~/Library/Application Support/PortNoir
+    override = os.environ.get("PORTNOIR_DATA_DIR")
+    path = Path(override) if override else Path(user_data_dir("PortNoir", appauthor=False))
     path.mkdir(parents=True, exist_ok=True)
     return path
 
 
-def local_ip() -> str:
-    s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+def _is_useful_ipv4(ip: str) -> bool:
     try:
-        s.connect(("10.255.255.255", 1))  # no packet is sent
-        return s.getsockname()[0]
-    except OSError:
-        return "127.0.0.1"
-    finally:
-        s.close()
+        addr = ipaddress.ip_address(ip)
+    except ValueError:
+        return False
+    return not (addr.is_loopback or addr.is_link_local or addr.is_multicast or addr.is_unspecified)
+
+
+def local_ip() -> str:
+    candidates: list[str] = []
+    seen: set[str] = set()
+    for host in ("8.8.8.8", "1.1.1.1", "10.255.255.255"):
+        try:
+            s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+            s.settimeout(0.25)
+            s.connect((host, 53))
+            ip = s.getsockname()[0]
+            if _is_useful_ipv4(ip) and ip not in seen:
+                candidates.append(ip)
+                seen.add(ip)
+        except OSError:
+            pass
+        finally:
+            try:
+                s.close()
+            except Exception:
+                pass
+    for family, _, _, _, sockaddr in socket.getaddrinfo(socket.gethostname(), None, socket.AF_INET, socket.SOCK_DGRAM):
+        ip = sockaddr[0] if sockaddr else ""
+        if _is_useful_ipv4(ip) and ip not in seen:
+            candidates.append(ip)
+            seen.add(ip)
+    for ip in candidates:
+        try:
+            addr = ipaddress.ip_address(ip)
+            if addr.is_private:
+                return ip
+        except ValueError:
+            continue
+    return candidates[0] if candidates else "127.0.0.1"
 
 
 @dataclass

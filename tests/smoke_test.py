@@ -9,7 +9,7 @@ import tempfile
 from pathlib import Path
 
 tmp = tempfile.mkdtemp()
-os.environ["XDG_DATA_HOME"] = tmp
+os.environ["PORTNOIR_DATA_DIR"] = tmp
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
 from PySide6.QtWidgets import QApplication  # noqa: E402
@@ -33,6 +33,17 @@ async def wait_for(manager, state, device_id=None, timeout=8):
             return ids[0]
         await asyncio.sleep(0.05)
     raise TimeoutError(f"never reached {state}")
+
+
+async def wait_for_delivery(manager, device_id, message_id, timeout=5):
+    deadline = asyncio.get_event_loop().time() + timeout
+    while asyncio.get_event_loop().time() < deadline:
+        history = manager.chat_store.history(device_id)
+        message = next((item for item in history if item["id"] == message_id), None)
+        if message and message["delivered"]:
+            return
+        await asyncio.sleep(0.05)
+    raise TimeoutError("chat acknowledgement not received")
 
 
 async def main():
@@ -69,6 +80,10 @@ async def main():
     task = asyncio.create_task(run_phone(phone_file, None, log=logs.append))
     await wait_for(manager, ConnectionState.CONNECTED)
     print("reconnected with stored key ok")
+    sent = await manager.send_chat_text(dev_id, "desktop smoke message")
+    await wait_for_delivery(manager, dev_id, sent["id"])
+    assert manager.chat_store.history(dev_id)[-1]["body"] == "desktop smoke message"
+    print("chat text persisted and acknowledged")
     task.cancel()
     await asyncio.gather(task, return_exceptions=True)
     await wait_for(manager, ConnectionState.DISCONNECTED)

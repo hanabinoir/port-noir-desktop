@@ -58,8 +58,10 @@ async def session(state: dict, path: Path, name: str, log=print) -> None:
         elif reply["type"] != P.AUTH_OK:
             raise Rejected(reply.get("reason", "rejected"))
         log("connected")
-        async for _ in ws:
-            pass
+        async for raw in ws:
+            message = P.decode(raw)
+            if message.get("type") in ("chat.text", "chat.file"):
+                await ws.send(P.encode(P.make("ack", id=message.get("id", ""))))
     log("disconnected")
 
 

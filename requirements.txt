@@ -6,3 +6,4 @@ qrcode[pil]>=7.4
 cryptography>=42
 platformdirs>=4
 qtawesome>=1.3
+aiohttp>=3.10
