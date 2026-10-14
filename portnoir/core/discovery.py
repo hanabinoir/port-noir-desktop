@@ -18,12 +18,14 @@ class Advertiser:
         self._azc: AsyncZeroconf | None = None
         self._info: ServiceInfo | None = None
 
-    async def start(self, mac_id: str, name: str, ip: str, port: int, fingerprint: str) -> None:
+    async def start(self, mac_id: str, name: str, ip: str, port: int, fingerprint: str,
+                    transfer_port: int = 0) -> None:
         safe = (re.sub(r"[^A-Za-z0-9-]", "-", name)[:32] or "mac") + "-" + mac_id[:6]
         self._info = ServiceInfo(
             SERVICE_TYPE, f"{safe}.{SERVICE_TYPE}",
             addresses=[socket.inet_aton(ip)], port=port,
-            properties={"v": "1", "id": mac_id, "name": name, "fp": fingerprint[:16]},
+            properties={"v": "1", "id": mac_id, "name": name, "fp": fingerprint[:16],
+                        "https_port": str(transfer_port)},
             server=f"{safe}.local.")
         self._azc = AsyncZeroconf()
         await self._azc.async_register_service(self._info)

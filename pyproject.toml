@@ -8,7 +8,7 @@ version = "0.1.0"
 description = "PortNoir: macOS companion for Android over Wi-Fi"
 requires-python = ">=3.10"
 dependencies = [
-  "PySide6>=6.7", "qasync>=0.27", "websockets>=13", "zeroconf>=0.132",
+  "PySide6>=6.7", "qasync>=0.27", "websockets>=13", "zeroconf>=0.132", "aiohttp>=3.10",
   "qrcode[pil]>=7.4", "cryptography>=42", "platformdirs>=4", "qtawesome>=1.3",
 ]
 

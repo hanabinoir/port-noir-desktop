@@ -8,6 +8,7 @@ from PySide6.QtGui import QKeySequence
 from PySide6.QtWidgets import QHBoxLayout, QMainWindow, QMessageBox, QStackedWidget, QWidget
 
 from ..core.connection import ConnectionManager, ConnectionState
+from ..core import protocol as P
 from ..core.pairing import PairedDevice
 from .dialogs.call import CallDialog
 from .dialogs.pair_device import PairDeviceDialog
@@ -42,7 +43,7 @@ class MainWindow(QMainWindow):
 
         self.sidebar = Sidebar()
         self.stack = QStackedWidget()
-        self.pages = [PortPage(), PicturesPage(), SmsPage(), DialpadPage()]
+        self.pages = [PortPage(manager), PicturesPage(), SmsPage(), DialpadPage()]
         for page in self.pages:
             self.stack.addWidget(page)
 
@@ -68,6 +69,8 @@ class MainWindow(QMainWindow):
         manager.devices_changed.connect(self.refresh_devices)
         manager.state_changed.connect(lambda *_: self.refresh_devices())
         manager.server_error.connect(lambda msg: self.sidebar.set_status(msg))
+        manager.message_received.connect(self._on_message_received)
+        manager.devices_changed.connect(self.pages[0].refresh)
         self.refresh_devices()
 
     # ---- helpers ---------------------------------------------------------
@@ -93,6 +96,20 @@ class MainWindow(QMainWindow):
         self.sidebar.set_status(status)
         for page in self.pages:
             page.set_device_text(header)
+        self.pages[0].set_device(selected)
+
+    def _on_message_received(self, device_id: str, message: dict) -> None:
+        if message.get("type") not in ("chat.text", "chat.file"):
+            return
+        self.manager.chat_store.add_message(device_id, message, "incoming")
+        if message["type"] == "chat.file" and self.manager.chat_store.blob(
+            device_id, message["blob"],
+        ):
+            self.manager.chat_store.set_transfer_state(device_id, message["blob"], "complete")
+        asyncio.ensure_future(self.manager.send(
+            device_id, P.make("ack", id=str(message.get("id", "")))))
+        if self.pages[0].device_id == device_id:
+            self.pages[0].refresh()
 
     def _on_device_selected(self, _device_id: str) -> None:
         self.refresh_devices()

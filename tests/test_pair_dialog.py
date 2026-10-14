@@ -1,10 +1,13 @@
 import os
+import socket
 import time
+from unittest import mock
 
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
 from PySide6.QtWidgets import QApplication
 
+from portnoir.core.pairing import local_ip
 from portnoir.ui.dialogs.pair_device import PairDeviceDialog
 
 
@@ -37,3 +40,15 @@ def test_tick_uses_cached_host_without_recomputing_payload():
     assert manager.calls == 0
     assert "10.0.0.5:8765" in dlg.info.text
     app.quit()
+
+
+def test_local_ip_prefers_private_lan_address_over_loopback():
+    fake_socket = mock.MagicMock()
+    fake_socket.getsockname.return_value = ("127.0.0.1",)
+    fake_socket.__enter__ = mock.MagicMock(return_value=fake_socket)
+    fake_socket.__exit__ = mock.MagicMock(return_value=None)
+
+    with mock.patch("socket.socket", return_value=fake_socket), \
+         mock.patch("socket.getaddrinfo", return_value=[(socket.AF_INET, socket.SOCK_DGRAM, 0, '', ('192.168.1.42', 0))]):
+        assert local_ip() == "192.168.1.42"
+
